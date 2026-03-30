@@ -1,0 +1,194 @@
+local players = cloneref(game:GetService('Players'));
+local runService = cloneref(game:GetService('RunService'));
+
+local localPlayer = players.LocalPlayer;
+local camera = cloneref(workspace.CurrentCamera);
+
+local map;
+local coins;
+local lastCoin;
+
+local tweenSpeed = 18;
+local canTween = true;
+
+local huge = math.huge;
+local tick = tick;
+local vec2 = Vector2.new;
+
+local function draw(type)
+    local obj = Drawing.new(type);
+    obj.Transparency = 1;
+    obj.Visible = true;
+    return obj;
+end
+
+local function isValid(obj)
+    return (obj and obj.Parent) ~= nil;
+end
+
+local function worldToScreen(pos)
+    local v, visible = camera:WorldToViewportPoint(pos);
+    return vec2(v.X, v.Y), visible;
+end
+
+local function getMap()
+    local children = workspace:GetChildren();
+    for i = 1, #children do
+        local v = children[i];
+        if (v:FindFirstChild('Base')) then
+            return v;
+        end
+    end
+end
+
+local function getClosestCoin(rootPart)
+    local container = map and map:FindFirstChild('CoinContainer');
+    if (not container) then
+        return nil, huge;
+    end
+
+    local closest, shortest = nil, huge;
+    local rootPos = rootPart.Position;
+
+    local list = container:GetChildren();
+    for i = 1, #list do
+        local coin = list[i];
+        if (coin:IsA('BasePart') and coin:FindFirstChild('TouchInterest')) then
+            local dist = (coin.Position - rootPos).Magnitude;
+            if (dist < shortest) then
+                closest = coin;
+                shortest = dist;
+            end
+        end
+    end
+
+    return closest, shortest;
+end
+
+local function tweenPosition(rootPart, target, duration)
+    local start = rootPart.CFrame;
+    local startTime = tick();
+
+    canTween = false;
+
+    while (true) do
+        if (not isValid(rootPart) or not isValid(target) or not isValid(map)) then
+            break;
+        end
+
+        local alpha = (tick() - startTime) / duration;
+        if (alpha >= 1) then
+            break;
+        end
+
+        rootPart.CFrame = start:Lerp(target.CFrame, alpha);
+        runService.Heartbeat:Wait();
+    end
+
+    if (isValid(rootPart) and isValid(target)) then
+        rootPart.CFrame = target.CFrame;
+    end
+
+    canTween = true;
+end
+
+local function setNoclip()
+    local char = localPlayer.Character;
+    if (not char) then
+        return;
+    end
+
+    local parts = char:GetDescendants();
+    for i = 1, #parts do
+        local v = parts[i];
+        if (v:IsA('BasePart')) then
+            v.CanCollide = false;
+        end
+    end
+end
+
+local nextCoinLine = draw('Line');
+local status = draw('Text');
+
+status.Center = true;
+status.Size = 16;
+
+local function updateAutoFarm()
+    local screenSize = camera.ViewportSize;
+    status.Position = vec2(screenSize.X * 0.5, screenSize.Y * 0.2);
+
+    if (not isValid(map)) then
+        map = getMap();
+    end
+
+    if (not isValid(coins)) then
+        pcall(function()
+            coins = localPlayer.PlayerGui.MainGUI.Game.CoinBags.Container.Coin.CurrencyFrame.Icon.Coins;
+        end);
+    end
+
+    local char = localPlayer.Character;
+    if (not char) then
+        status.Text = 'autofarm status: character not found';
+        nextCoinLine.Visible = false;
+        return;
+    end
+
+    local rootPart = char:FindFirstChild('HumanoidRootPart');
+    if (not rootPart) then
+        status.Text = 'autofarm status: rootpart missing';
+        nextCoinLine.Visible = false;
+        return;
+    end
+
+    if (lastCoin and isValid(lastCoin)) then
+        local p1, v1 = worldToScreen(rootPart.Position);
+        local p2, v2 = worldToScreen(lastCoin.Position);
+
+        nextCoinLine.From = p1;
+        nextCoinLine.To = p2;
+        nextCoinLine.Visible = (v1 and v2);
+    end
+
+    if (isValid(map) and coins and coins.Text ~= '40') then
+        local closest, dist = getClosestCoin(rootPart);
+
+        if (isValid(closest)) then
+            lastCoin = closest;
+            status.Text = 'autofarm status: ' .. coins.Text .. ' coins';
+
+            if (canTween) then
+                task.spawn(function()
+                    tweenPosition(rootPart, closest, dist / tweenSpeed);
+                end);
+            end
+        end
+    else
+        if (coins and coins.Text == '40') then
+            status.Text = 'autofarm status: coinbag full';
+        else
+            status.Text = 'autofarm status: waiting for map';
+        end
+
+        rootPart.CFrame = CFrame.new(-4981.51, 308.51, 3.79);
+        nextCoinLine.Visible = false;
+    end
+end
+
+task.spawn(function()
+    while (true) do
+        setNoclip();
+        task.wait(0.1);
+    end
+end);
+
+local ok, err = pcall(function()
+    while (true) do
+        updateAutoFarm();
+        task.wait(0.03);
+    end
+end);
+
+if (not ok) then
+    error(err);
+end
